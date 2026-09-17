@@ -174,6 +174,74 @@ public class BookingsControllerTests : IClassFixture<PadelApiFactory>
         Assert.Equal("pending", body.GetProperty("paymentStatus").GetString());
     }
 
+    private Member SeedMember(string name, DateOnly joinedAt)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var member = new Member
+        {
+            Name = name,
+            Phone = "1122334455",
+            MembershipFee = 10000m,
+            DiscountPercent = 0m,
+            JoinedAt = joinedAt,
+        };
+        db.Members.Add(member);
+        db.SaveChanges();
+
+        return member;
+    }
+
+    [Fact]
+    public async Task Create_ConSocioQueDebeDosOMasCuotas_Devuelve403()
+    {
+        var court = SeedCourt();
+        // Se dio de alta hace 2 meses y nunca pagó: debe 3 cuotas.
+        var member = SeedMember("Socio Moroso", DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(-2));
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        var response = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Socio Moroso",
+            customerPhone = "1122334455",
+            date,
+            startHour = 10,
+            endHour = 11,
+            memberId = member.Id,
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(
+            "El socio debe 2 o más cuotas y no puede reservar hasta ponerse al día",
+            body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ConSocioAlDia_PermiteLaReserva()
+    {
+        var court = SeedCourt();
+        var member = SeedMember("Socio Al Dia", DateOnly.FromDateTime(DateTime.UtcNow));
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        var response = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Socio Al Dia",
+            customerPhone = "1122334455",
+            date,
+            startHour = 11,
+            endHour = 12,
+            memberId = member.Id,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
     [Fact]
     public async Task Delete_BorraLaReserva()
     {

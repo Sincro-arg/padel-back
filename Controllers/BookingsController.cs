@@ -43,6 +43,15 @@ public class BookingsController : ControllerBase
         var (error, date) = await ValidateAsync(dto);
         if (error != null) return BadRequest(new { error });
 
+        if (dto.MemberId.HasValue)
+        {
+            var member = await _db.Members.FirstOrDefaultAsync(m => m.Id == dto.MemberId.Value);
+            if (member == null) return BadRequest(new { error = "El socio indicado no existe" });
+
+            if (await MemberDebt.MonthsOwedAsync(_db, member) >= 2)
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "El socio debe 2 o más cuotas y no puede reservar hasta ponerse al día" });
+        }
+
         if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: null))
             return Conflict(new { error = "La cancha ya tiene una reserva en ese horario" });
 
