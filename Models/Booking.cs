@@ -1,10 +1,8 @@
 namespace Padel.Api.Models;
 
 /// <summary>
-/// Reserva concreta de una cancha en una fecha y horario. El modelo completo
-/// (creación, edición, solapamiento, cancelación) lo arma la tarea de Bookings;
-/// acá solo se define lo necesario para que Payments/Stock puedan cobrar y
-/// vender sobre una reserva existente.
+/// Reserva concreta de una cancha en una fecha y horario. El alta, edición,
+/// solapamiento y cancelación se manejan en BookingsController.
 /// </summary>
 public class Booking
 {

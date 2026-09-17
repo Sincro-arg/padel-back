@@ -1,0 +1,162 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Padel.Api.Data;
+using Padel.Api.Models;
+
+namespace Padel.Api.Tests;
+
+public class BookingsControllerTests : IClassFixture<PadelApiFactory>
+{
+    private readonly PadelApiFactory _factory;
+
+    public BookingsControllerTests(PadelApiFactory factory)
+    {
+        _factory = factory;
+    }
+
+    private async Task<HttpClient> AuthenticatedClientAsync(string username, string password)
+    {
+        var client = _factory.CreateClient();
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
+        loginResponse.EnsureSuccessStatusCode();
+
+        var json = await loginResponse.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var token = doc.RootElement.GetProperty("token").GetString();
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    // Usa las PriceRules que ya trae el seed (weekday 8-17 a $4000/hora): así no
+    // colisiona con ellas agregando una regla propia que se superponga.
+    private Court SeedCourt()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var court = new Court { Name = $"Cancha de test {Guid.NewGuid()}" };
+        db.Courts.Add(court);
+        db.SaveChanges();
+        return court;
+    }
+
+    // Próximo lunes: así el test no depende del día en que se corra.
+    private static string NextWeekday()
+    {
+        var date = DateOnly.FromDateTime(DateTime.Now).AddDays(1);
+        while (date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) date = date.AddDays(1);
+        return date.ToString("yyyy-MM-dd");
+    }
+
+    [Fact]
+    public async Task Create_CalculaElPrecioSegunPriceRules()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        var response = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente de prueba",
+            customerPhone = "1122334455",
+            date,
+            startHour = 10,
+            endHour = 12,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        // Seed: weekday 8-17hs a $4000/hora -> 2 horas = $8000.
+        Assert.Equal(8000m, body.GetProperty("totalAmount").GetDecimal());
+        Assert.Equal("confirmed", body.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Create_ConHorarioSolapado_Devuelve409()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Primer cliente",
+            customerPhone = "1111111111",
+            date,
+            startHour = 14,
+            endHour = 16,
+        });
+
+        var response = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Segundo cliente",
+            customerPhone = "2222222222",
+            date,
+            startHour = 15,
+            endHour = 17,
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Cancel_ConMasDeCuatroHorasDeAnticipacion_NoCobraPenalidad()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = DateOnly.FromDateTime(DateTime.Now.AddDays(3)).ToString("yyyy-MM-dd");
+
+        var createResponse = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente de prueba",
+            customerPhone = "1122334455",
+            date,
+            startHour = 9,
+            endHour = 10,
+        });
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var id = created.GetProperty("id").GetGuid();
+
+        var response = await client.PostAsJsonAsync($"/api/bookings/{id}/cancel", new { });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("cancelled", body.GetProperty("status").GetString());
+        Assert.True(body.GetProperty("cancellationFee").ValueKind == JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Delete_BorraLaReserva()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        var createResponse = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente de prueba",
+            customerPhone = "1122334455",
+            date,
+            startHour = 20,
+            endHour = 21,
+        });
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var id = created.GetProperty("id").GetGuid();
+
+        var deleteResponse = await client.DeleteAsync($"/api/bookings/{id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var listResponse = await client.GetAsync($"/api/bookings?date={date}");
+        var list = await listResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.DoesNotContain(list.EnumerateArray(), b => b.GetProperty("id").GetGuid() == id);
+    }
+}
