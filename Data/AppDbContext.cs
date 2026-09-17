@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Court> Courts => Set<Court>();
     public DbSet<PriceRule> PriceRules => Set<PriceRule>();
     public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<RecurringBooking> RecurringBookings => Set<RecurringBooking>();
     public DbSet<BookingPayment> BookingPayments => Set<BookingPayment>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductSale> ProductSales => Set<ProductSale>();

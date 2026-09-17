@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Padel.Api.Data;
 using Padel.Api.Models;
+using Padel.Api.Services;
 
 namespace Padel.Api.Controllers;
 
@@ -42,10 +43,10 @@ public class BookingsController : ControllerBase
         var (error, date) = await ValidateAsync(dto);
         if (error != null) return BadRequest(new { error });
 
-        if (await OverlapsAsync(dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: null))
+        if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: null))
             return Conflict(new { error = "La cancha ya tiene una reserva en ese horario" });
 
-        var (total, priceError) = await CalculatePriceAsync(date, dto.StartHour, dto.EndHour);
+        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour);
         if (priceError != null) return BadRequest(new { error = priceError });
 
         var booking = new Booking
@@ -78,10 +79,10 @@ public class BookingsController : ControllerBase
         var (error, date) = await ValidateAsync(dto);
         if (error != null) return BadRequest(new { error });
 
-        if (await OverlapsAsync(dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: id))
+        if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: id))
             return Conflict(new { error = "La cancha ya tiene una reserva en ese horario" });
 
-        var (total, priceError) = await CalculatePriceAsync(date, dto.StartHour, dto.EndHour);
+        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour);
         if (priceError != null) return BadRequest(new { error = priceError });
 
         booking.CourtId = dto.CourtId;
@@ -133,36 +134,6 @@ public class BookingsController : ControllerBase
         await _db.SaveChangesAsync();
 
         return NoContent();
-    }
-
-    private async Task<bool> OverlapsAsync(Guid courtId, DateOnly date, int startHour, int endHour, Guid? excludeId)
-    {
-        return await _db.Bookings.AnyAsync(b =>
-            b.CourtId == courtId &&
-            b.Date == date &&
-            b.Status == "confirmed" &&
-            b.Id != (excludeId ?? Guid.Empty) &&
-            b.StartHour < endHour &&
-            b.EndHour > startHour);
-    }
-
-    private async Task<(decimal? total, string? error)> CalculatePriceAsync(DateOnly date, int startHour, int endHour)
-    {
-        var dayType = date.DayOfWeek == DayOfWeek.Saturday || date.DayOfWeek == DayOfWeek.Sunday
-            ? "weekend"
-            : "weekday";
-
-        var rules = await _db.PriceRules.Where(r => r.DayType == dayType).ToListAsync();
-
-        decimal total = 0;
-        for (var hour = startHour; hour < endHour; hour++)
-        {
-            var rule = rules.FirstOrDefault(r => r.StartHour <= hour && hour < r.EndHour);
-            if (rule == null)
-                return (null, $"No hay una tarifa de precio configurada para las {hour}:00");
-            total += rule.PricePerHour;
-        }
-        return (total, null);
     }
 
     private async Task<(string? error, DateOnly date)> ValidateAsync(BookingDto? dto)
