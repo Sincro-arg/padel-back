@@ -17,6 +17,8 @@ public class AppDbContext : DbContext
     public DbSet<BookingPayment> BookingPayments => Set<BookingPayment>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductSale> ProductSales => Set<ProductSale>();
+    public DbSet<Member> Members => Set<Member>();
+    public DbSet<MemberPayment> MemberPayments => Set<MemberPayment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -29,5 +31,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<BookingPayment>().Property(p => p.Amount).HasPrecision(10, 2);
         modelBuilder.Entity<Product>().Property(p => p.Price).HasPrecision(10, 2);
         modelBuilder.Entity<ProductSale>().Property(s => s.Amount).HasPrecision(10, 2);
+        modelBuilder.Entity<Member>().Property(m => m.MembershipFee).HasPrecision(10, 2);
+        modelBuilder.Entity<Member>().Property(m => m.DiscountPercent).HasPrecision(5, 2);
+        modelBuilder.Entity<MemberPayment>().Property(p => p.Amount).HasPrecision(10, 2);
     }
 }
