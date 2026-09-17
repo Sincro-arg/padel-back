@@ -28,6 +28,16 @@ public static class DbSeeder
             );
         }
 
+        if (!db.Products.Any())
+        {
+            db.Products.AddRange(
+                new Product { Name = "Paleta", Type = "alquiler", Stock = 10, MinStock = 2, Price = 1500m },
+                new Product { Name = "Pelotas de pádel (tubo x3)", Type = "venta", Stock = 20, MinStock = 5, Price = 3500m },
+                new Product { Name = "Agua 500ml", Type = "venta", Stock = 3, MinStock = 5, Price = 1200m },
+                new Product { Name = "Gaseosa 500ml", Type = "venta", Stock = 15, MinStock = 5, Price = 1500m }
+            );
+        }
+
         if (!db.Users.Any())
         {
             db.Users.AddRange(
