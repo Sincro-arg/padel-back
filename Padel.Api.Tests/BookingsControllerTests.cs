@@ -134,6 +134,47 @@ public class BookingsControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task Cancel_ConMenosDeCuatroHorasDeAnticipacion_CobraLaMitadComoPenalidad()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        // Inserta la reserva directo en la base con fecha ya pasada, para que
+        // "faltan menos de 4hs" se cumpla siempre sin depender de price rules
+        // ni de la hora/día en que corra el test.
+        Guid id;
+        decimal totalAmount = 8000m;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var booking = new Booking
+            {
+                CourtId = court.Id,
+                CustomerName = "Cliente de prueba",
+                CustomerPhone = "1122334455",
+                Date = DateOnly.FromDateTime(DateTime.Now.AddDays(-1)),
+                StartHour = 10,
+                EndHour = 11,
+                Status = "confirmed",
+                TotalAmount = totalAmount,
+                PaidAmount = 0,
+                PaymentStatus = "pending",
+            };
+            db.Bookings.Add(booking);
+            db.SaveChanges();
+            id = booking.Id;
+        }
+
+        var response = await client.PostAsJsonAsync($"/api/bookings/{id}/cancel", new { });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("cancelled", body.GetProperty("status").GetString());
+        Assert.Equal(totalAmount * 0.5m, body.GetProperty("cancellationFee").GetDecimal());
+        Assert.Equal("pending", body.GetProperty("paymentStatus").GetString());
+    }
+
+    [Fact]
     public async Task Delete_BorraLaReserva()
     {
         var court = SeedCourt();
