@@ -122,6 +122,55 @@ public class RecurringBookingsControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task GetAll_DevuelveLosTurnosFijosCreados()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var weekday = (int)DateTime.Now.DayOfWeek;
+
+        var createResponse = await client.PostAsJsonAsync("/api/recurring-bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente fijo para listar",
+            customerPhone = "1122334455",
+            weekday,
+            startHour = 22,
+            endHour = 23,
+        });
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var recurringId = created.GetProperty("id").GetGuid();
+
+        var response = await client.GetAsync("/api/recurring-bookings");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var list = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var match = list.EnumerateArray().First(r => r.GetProperty("id").GetGuid() == recurringId);
+        Assert.Equal(court.Id, match.GetProperty("courtId").GetGuid());
+        Assert.Equal("Cliente fijo para listar", match.GetProperty("customerName").GetString());
+        Assert.Equal(weekday, match.GetProperty("weekday").GetInt32());
+    }
+
+    [Fact]
+    public async Task Create_CanchaInexistente_Devuelve400()
+    {
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.PostAsJsonAsync("/api/recurring-bookings", new
+        {
+            courtId = Guid.NewGuid(),
+            customerName = "Cliente fijo",
+            customerPhone = "1122334455",
+            weekday = (int)DateTime.Now.DayOfWeek,
+            startHour = 20,
+            endHour = 21,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("La cancha indicada no existe", body.GetProperty("error").GetString());
+    }
+
+    [Fact]
     public async Task Delete_CancelaLasReservasFuturasGeneradas()
     {
         var court = SeedCourt();
