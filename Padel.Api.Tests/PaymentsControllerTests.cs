@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -93,5 +94,169 @@ public class PaymentsControllerTests : IClassFixture<PadelApiFactory>
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("partial", body.GetProperty("paymentStatus").GetString());
+    }
+
+    [Fact]
+    public async Task AddPayment_ConMontoCeroONegativo_Devuelve400()
+    {
+        var booking = SeedBooking(totalAmount: 3000m);
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.PostAsJsonAsync($"/api/bookings/{booking.Id}/payments", new
+        {
+            amount = 0m,
+            paymentMethod = "efectivo",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
+    }
+
+    [Fact]
+    public async Task AddPayment_ConPaymentMethodInvalido_Devuelve400()
+    {
+        var booking = SeedBooking(totalAmount: 3000m);
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.PostAsJsonAsync($"/api/bookings/{booking.Id}/payments", new
+        {
+            amount = 1000m,
+            paymentMethod = "bitcoin",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
+    }
+
+    [Fact]
+    public async Task AddPayment_ConReservaInexistente_Devuelve404()
+    {
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.PostAsJsonAsync($"/api/bookings/{Guid.NewGuid()}/payments", new
+        {
+            amount = 1000m,
+            paymentMethod = "efectivo",
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
+    }
+
+    [Fact]
+    public async Task GetDebts_IncluyeReservasConSaldoPendienteYExcluyeLasPagadas()
+    {
+        var conDeuda = SeedBooking(totalAmount: 2500m);
+        var pagada = SeedBooking(totalAmount: 1000m);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var trackedPagada = db.Bookings.Single(b => b.Id == pagada.Id);
+            trackedPagada.PaidAmount = 1000m;
+            trackedPagada.PaymentStatus = "paid";
+            db.SaveChanges();
+        }
+
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var response = await client.GetAsync("/api/payments/debts");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var debts = body.EnumerateArray().ToList();
+
+        var deudaDelTest = debts.SingleOrDefault(d => d.GetProperty("bookingId").GetGuid() == conDeuda.Id);
+        Assert.True(deudaDelTest.ValueKind == JsonValueKind.Object);
+        Assert.Equal(2500m, deudaDelTest.GetProperty("amountDue").GetDecimal());
+        Assert.Equal(conDeuda.CustomerName, deudaDelTest.GetProperty("customerName").GetString());
+
+        Assert.DoesNotContain(debts, d => d.GetProperty("bookingId").GetGuid() == pagada.Id);
+    }
+
+    [Fact]
+    public async Task GetDebts_ComoEmpleado_Devuelve200()
+    {
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.GetAsync("/api/payments/debts");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetSummary_SumaPorMedioDePagoIncluyendoVentasDeProductos()
+    {
+        var fecha = new DateTime(2021, 3, 10, 12, 0, 0, DateTimeKind.Utc);
+        var booking = SeedBooking(totalAmount: 5000m);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            db.BookingPayments.Add(new BookingPayment
+            {
+                BookingId = booking.Id,
+                Amount = 1000m,
+                PaymentMethod = "efectivo",
+                CreatedAt = fecha,
+            });
+            db.BookingPayments.Add(new BookingPayment
+            {
+                BookingId = booking.Id,
+                Amount = 2000m,
+                PaymentMethod = "transferencia",
+                CreatedAt = fecha,
+            });
+
+            var product = new Product { Name = "Pelotas de test", Type = "venta", Stock = 10, MinStock = 2, Price = 500m };
+            db.Products.Add(product);
+            db.ProductSales.Add(new ProductSale
+            {
+                ProductId = product.Id,
+                Quantity = 1,
+                Amount = 500m,
+                PaymentMethod = "tarjeta",
+                CreatedAt = fecha,
+            });
+
+            db.SaveChanges();
+        }
+
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+        var response = await client.GetAsync("/api/payments/summary?date=2021-03-10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal("2021-03-10", body.GetProperty("date").GetString());
+        Assert.Equal(1000m, body.GetProperty("cash").GetDecimal());
+        Assert.Equal(2000m, body.GetProperty("transfer").GetDecimal());
+        Assert.Equal(500m, body.GetProperty("card").GetDecimal());
+        Assert.Equal(3500m, body.GetProperty("total").GetDecimal());
+    }
+
+    [Fact]
+    public async Task GetSummary_ComoEmpleado_Devuelve403()
+    {
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.GetAsync("/api/payments/summary?date=2021-03-10");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetSummary_ConFechaInvalida_Devuelve400()
+    {
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await client.GetAsync("/api/payments/summary?date=no-es-una-fecha");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
     }
 }
