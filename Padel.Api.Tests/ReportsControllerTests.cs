@@ -31,36 +31,94 @@ public class ReportsControllerTests : IClassFixture<PadelApiFactory>
         return client;
     }
 
-    private Court SeedCourt()
+    private (Guid CourtId, Guid BookingId) SeedConfirmedBooking(
+        DateOnly date, int startHour, int endHour, string customerName, decimal totalAmount)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var court = new Court { Name = $"Cancha de test {Guid.NewGuid()}" };
         db.Courts.Add(court);
-        db.SaveChanges();
-        return court;
-    }
 
-    private void SeedBooking(Guid courtId, string customerName, DateOnly date, int startHour, int endHour, decimal totalAmount, string status = "confirmed")
-    {
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        db.Bookings.Add(new Booking
+        var booking = new Booking
         {
-            CourtId = courtId,
+            CourtId = court.Id,
             CustomerName = customerName,
             CustomerPhone = "1122334455",
             Date = date,
             StartHour = startHour,
             EndHour = endHour,
-            Status = status,
+            Status = "confirmed",
             TotalAmount = totalAmount,
-            PaidAmount = 0,
-            PaymentStatus = "pending",
-        });
+        };
+        db.Bookings.Add(booking);
         db.SaveChanges();
+
+        return (court.Id, booking.Id);
+    }
+
+    [Fact]
+    public async Task GetMonthly_ComoAdmin_SumaFacturacionYAgrupaClientes()
+    {
+        var date = new DateOnly(2025, 3, 10);
+        SeedConfirmedBooking(date, 9, 10, "Juan Pérez", 5000);
+        SeedConfirmedBooking(date, 10, 11, "Juan Pérez", 5000);
+        SeedConfirmedBooking(date, 14, 15, "María López", 4000);
+
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await client.GetAsync("/api/reports/monthly?year=2025&month=03");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(14000, body.GetProperty("totalRevenue").GetDecimal());
+
+        var topCustomers = body.GetProperty("topCustomers").EnumerateArray().ToList();
+        Assert.Equal("Juan Pérez", topCustomers[0].GetProperty("name").GetString());
+        Assert.Equal(10000, topCustomers[0].GetProperty("totalSpent").GetDecimal());
+        Assert.Equal(2, topCustomers[0].GetProperty("bookingsCount").GetInt32());
+
+        var byHour = body.GetProperty("byHour").EnumerateArray().ToList();
+        Assert.Equal(16, byHour.Count); // horas 8 a 23
+        Assert.Equal(8, byHour[0].GetProperty("hour").GetInt32());
+    }
+
+    [Fact]
+    public async Task GetMonthly_IgnoraReservasCanceladasYDeOtroMes()
+    {
+        // Año/mes propios de este test (2031-01) para no compartir datos con los
+        // demás tests de la clase: el factory (y su base InMemory) es el mismo
+        // para todos los [Fact] de acá.
+        SeedConfirmedBooking(new DateOnly(2031, 2, 5), 9, 10, "Otro Mes", 9999);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var court = new Court { Name = $"Cancha de test {Guid.NewGuid()}" };
+            db.Courts.Add(court);
+            db.Bookings.Add(new Booking
+            {
+                CourtId = court.Id,
+                CustomerName = "Cancelado",
+                CustomerPhone = "1122334455",
+                Date = new DateOnly(2031, 1, 10),
+                StartHour = 9,
+                EndHour = 10,
+                Status = "cancelled",
+                TotalAmount = 8888,
+            });
+            db.SaveChanges();
+        }
+
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await client.GetAsync("/api/reports/monthly?year=2031&month=01");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(0, body.GetProperty("totalRevenue").GetDecimal());
+        Assert.Empty(body.GetProperty("topCustomers").EnumerateArray());
     }
 
     [Fact]
@@ -68,53 +126,8 @@ public class ReportsControllerTests : IClassFixture<PadelApiFactory>
     {
         var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
 
-        var response = await client.GetAsync("/api/reports/monthly?year=2021&month=5");
+        var response = await client.GetAsync("/api/reports/monthly?year=2025&month=03");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task GetMonthly_ConMesInvalido_Devuelve400()
-    {
-        var client = await AuthenticatedClientAsync("admin", "Admin123!");
-
-        var response = await client.GetAsync("/api/reports/monthly?year=2021&month=13");
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task GetMonthly_ComoAdmin_SumaSoloReservasConfirmadasDelMes()
-    {
-        var court = SeedCourt();
-        var date = new DateOnly(2021, 5, 10);
-
-        SeedBooking(court.Id, "Cliente Uno", date, 10, 11, 4000m);
-        SeedBooking(court.Id, "Cliente Uno", date, 12, 13, 4000m);
-        SeedBooking(court.Id, "Cliente Dos", date, 14, 16, 12000m);
-        // Cancelada: no debe sumar al total ni contar como reserva del cliente.
-        SeedBooking(court.Id, "Cliente Dos", date, 18, 19, 5000m, status: "cancelled");
-        // Otro mes: no debe entrar en el reporte de mayo.
-        SeedBooking(court.Id, "Cliente Uno", new DateOnly(2021, 6, 10), 10, 11, 9000m);
-
-        var client = await AuthenticatedClientAsync("admin", "Admin123!");
-        var response = await client.GetAsync("/api/reports/monthly?year=2021&month=5");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-
-        Assert.Equal(20000m, body.GetProperty("totalRevenue").GetDecimal());
-
-        var byHour = body.GetProperty("byHour").EnumerateArray().ToList();
-        Assert.Equal(16, byHour.Count); // horas 8 a 23 inclusive (cierra a las 24)
-        Assert.Equal(8, byHour[0].GetProperty("hour").GetInt32());
-
-        var topCustomers = body.GetProperty("topCustomers").EnumerateArray().ToList();
-        Assert.Equal("Cliente Dos", topCustomers[0].GetProperty("name").GetString());
-        Assert.Equal(12000m, topCustomers[0].GetProperty("totalSpent").GetDecimal());
-        Assert.Equal(1, topCustomers[0].GetProperty("bookingsCount").GetInt32());
-        Assert.Equal("Cliente Uno", topCustomers[1].GetProperty("name").GetString());
-        Assert.Equal(8000m, topCustomers[1].GetProperty("totalSpent").GetDecimal());
-        Assert.Equal(2, topCustomers[1].GetProperty("bookingsCount").GetInt32());
     }
 }

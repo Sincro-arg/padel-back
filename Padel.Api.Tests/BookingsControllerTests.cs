@@ -282,6 +282,44 @@ public class BookingsControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task Create_ConSocioBloqueado_Devuelve403()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        Guid memberId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var member = new Member
+            {
+                Name = "Socio Bloqueado",
+                Phone = "1122334455",
+                MembershipFee = 10000m,
+                DiscountPercent = 0m,
+                JoinedAt = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(-2),
+            };
+            db.Members.Add(member);
+            db.SaveChanges();
+            memberId = member.Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente de prueba",
+            customerPhone = "1122334455",
+            date,
+            startHour = 11,
+            endHour = 12,
+            memberId,
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Delete_BorraLaReserva()
     {
         var court = SeedCourt();

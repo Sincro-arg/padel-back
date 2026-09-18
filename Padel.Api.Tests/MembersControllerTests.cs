@@ -158,6 +158,107 @@ public class MembersControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task UpdatePayment_CorrigeMontoYMetodo()
+    {
+        var member = SeedMember("Socio A Corregir");
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var today = DateTime.UtcNow;
+        var payResponse = await client.PostAsJsonAsync($"/api/members/{member.Id}/payments", new
+        {
+            month = today.Month,
+            year = today.Year,
+            amount = 10000,
+            paymentMethod = "efectivo",
+        });
+        var created = await payResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var paymentId = created.GetProperty("id").GetGuid();
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/members/{member.Id}/payments/{paymentId}", new
+        {
+            month = today.Month,
+            year = today.Year,
+            amount = 12000,
+            paymentMethod = "transferencia",
+        });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+
+        var updated = await updateResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(12000, updated.GetProperty("amount").GetDecimal());
+        Assert.Equal("transferencia", updated.GetProperty("paymentMethod").GetString());
+    }
+
+    [Fact]
+    public async Task UpdatePayment_ConMetodoInvalido_Devuelve400()
+    {
+        var member = SeedMember("Socio Pago Update Invalido");
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var today = DateTime.UtcNow;
+        var payResponse = await client.PostAsJsonAsync($"/api/members/{member.Id}/payments", new
+        {
+            month = today.Month,
+            year = today.Year,
+            amount = 10000,
+            paymentMethod = "efectivo",
+        });
+        var created = await payResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var paymentId = created.GetProperty("id").GetGuid();
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/members/{member.Id}/payments/{paymentId}", new
+        {
+            month = today.Month,
+            year = today.Year,
+            amount = 10000,
+            paymentMethod = "cheque",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdatePayment_PagoInexistente_Devuelve404()
+    {
+        var member = SeedMember("Socio Sin Pagos");
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.PutAsJsonAsync($"/api/members/{member.Id}/payments/{Guid.NewGuid()}", new
+        {
+            month = 1,
+            year = 2024,
+            amount = 1000,
+            paymentMethod = "efectivo",
+        });
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeletePayment_LoElimina_YRestauraMonthsOwed()
+    {
+        var joinedAt = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(-1);
+        var member = SeedMember("Socio A Borrar Pago", joinedAt);
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var today = DateTime.UtcNow;
+        var payResponse = await client.PostAsJsonAsync($"/api/members/{member.Id}/payments", new
+        {
+            month = today.Month,
+            year = today.Year,
+            amount = 10000,
+            paymentMethod = "efectivo",
+        });
+        var created = await payResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var paymentId = created.GetProperty("id").GetGuid();
+
+        var deleteResponse = await client.DeleteAsync($"/api/members/{member.Id}/payments/{paymentId}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var membersResponse = await client.GetAsync("/api/members");
+        var body = await membersResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var dto = body.EnumerateArray().First(m => m.GetProperty("id").GetGuid() == member.Id);
+        Assert.Equal(2, dto.GetProperty("monthsOwed").GetInt32());
+    }
+
+    [Fact]
     public async Task Delete_ComoAdmin_Devuelve204()
     {
         var member = SeedMember("Socio A Borrar");

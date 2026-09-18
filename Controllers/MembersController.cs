@@ -148,6 +148,54 @@ public class MembersController : ControllerBase
         });
     }
 
+    // Corregir un pago de cuota mal cargado (monto, mes o medio de pago
+    // equivocados). Mismos roles que AddPayment: quien cobra puede corregir.
+    [HttpPut("{id:guid}/payments/{paymentId:guid}")]
+    public async Task<IActionResult> UpdatePayment(Guid id, Guid paymentId, [FromBody] MemberPaymentDto dto)
+    {
+        var payment = await _db.MemberPayments.FirstOrDefaultAsync(p => p.Id == paymentId && p.MemberId == id);
+        if (payment == null) return NotFound(new { error = "Pago no encontrado" });
+
+        if (dto.Month < 1 || dto.Month > 12)
+            return BadRequest(new { error = "El mes debe estar entre 1 y 12" });
+
+        if (dto.Amount <= 0)
+            return BadRequest(new { error = "El monto debe ser mayor a 0" });
+
+        if (!ValidPaymentMethods.Contains(dto.PaymentMethod))
+            return BadRequest(new { error = "paymentMethod debe ser 'efectivo', 'transferencia' o 'tarjeta'" });
+
+        payment.Month = dto.Month;
+        payment.Year = dto.Year;
+        payment.Amount = dto.Amount;
+        payment.PaymentMethod = dto.PaymentMethod;
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            id = payment.Id,
+            memberId = payment.MemberId,
+            month = payment.Month,
+            year = payment.Year,
+            amount = payment.Amount,
+            paymentMethod = payment.PaymentMethod,
+            paidAt = payment.PaidAt,
+        });
+    }
+
+    // Eliminar un pago de cuota cargado por error.
+    [HttpDelete("{id:guid}/payments/{paymentId:guid}")]
+    public async Task<IActionResult> DeletePayment(Guid id, Guid paymentId)
+    {
+        var payment = await _db.MemberPayments.FirstOrDefaultAsync(p => p.Id == paymentId && p.MemberId == id);
+        if (payment == null) return NotFound(new { error = "Pago no encontrado" });
+
+        _db.MemberPayments.Remove(payment);
+        await _db.SaveChangesAsync();
+
+        return NoContent();
+    }
+
     private static object ToDto(Member m, IEnumerable<MemberPayment> payments)
     {
         var monthsOwed = MemberDebt.MonthsOwed(m, payments);

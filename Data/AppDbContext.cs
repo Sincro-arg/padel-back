@@ -19,6 +19,9 @@ public class AppDbContext : DbContext
     public DbSet<ProductSale> ProductSales => Set<ProductSale>();
     public DbSet<Member> Members => Set<Member>();
     public DbSet<MemberPayment> MemberPayments => Set<MemberPayment>();
+    public DbSet<Tournament> Tournaments => Set<Tournament>();
+    public DbSet<Pair> Pairs => Set<Pair>();
+    public DbSet<Match> Matches => Set<Match>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -34,5 +37,6 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Member>().Property(m => m.MembershipFee).HasPrecision(10, 2);
         modelBuilder.Entity<Member>().Property(m => m.DiscountPercent).HasPrecision(5, 2);
         modelBuilder.Entity<MemberPayment>().Property(p => p.Amount).HasPrecision(10, 2);
+        modelBuilder.Entity<Tournament>().Property(t => t.RegistrationFee).HasPrecision(10, 2);
     }
 }
