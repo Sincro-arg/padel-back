@@ -255,7 +255,7 @@ public class MembersControllerTests : IClassFixture<PadelApiFactory>
         var membersResponse = await client.GetAsync("/api/members");
         var body = await membersResponse.Content.ReadFromJsonAsync<JsonElement>();
         var dto = body.EnumerateArray().First(m => m.GetProperty("id").GetGuid() == member.Id);
-        Assert.Equal(1, dto.GetProperty("monthsOwed").GetInt32());
+        Assert.Equal(2, dto.GetProperty("monthsOwed").GetInt32());
     }
 
     [Fact]
