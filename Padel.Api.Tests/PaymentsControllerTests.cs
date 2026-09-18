@@ -94,4 +94,56 @@ public class PaymentsControllerTests : IClassFixture<PadelApiFactory>
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("partial", body.GetProperty("paymentStatus").GetString());
     }
+
+    [Fact]
+    public async Task EditPayment_CorrigeMontoYMedioDePago_RecalculaLaReserva()
+    {
+        var booking = SeedBooking(totalAmount: 4000m);
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        await client.PostAsJsonAsync($"/api/bookings/{booking.Id}/payments", new
+        {
+            amount = 1000m,
+            paymentMethod = "efectivo",
+        });
+
+        var paymentsResponse = await client.GetAsync($"/api/bookings/{booking.Id}/payments");
+        var paymentsList = await paymentsResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var paymentId = paymentsList[0].GetProperty("id").GetGuid();
+
+        var editResponse = await client.PutAsJsonAsync($"/api/bookings/{booking.Id}/payments/{paymentId}", new
+        {
+            amount = 4000m,
+            paymentMethod = "transferencia",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, editResponse.StatusCode);
+        var edited = await editResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(4000m, edited.GetProperty("paidAmount").GetDecimal());
+        Assert.Equal("paid", edited.GetProperty("paymentStatus").GetString());
+    }
+
+    [Fact]
+    public async Task DeletePayment_BorraElPagoYVuelveAQuedarPending()
+    {
+        var booking = SeedBooking(totalAmount: 3000m);
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        await client.PostAsJsonAsync($"/api/bookings/{booking.Id}/payments", new
+        {
+            amount = 3000m,
+            paymentMethod = "efectivo",
+        });
+
+        var paymentsResponse = await client.GetAsync($"/api/bookings/{booking.Id}/payments");
+        var paymentsList = await paymentsResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var paymentId = paymentsList[0].GetProperty("id").GetGuid();
+
+        var deleteResponse = await client.DeleteAsync($"/api/bookings/{booking.Id}/payments/{paymentId}");
+
+        Assert.Equal(HttpStatusCode.OK, deleteResponse.StatusCode);
+        var body = await deleteResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(0m, body.GetProperty("paidAmount").GetDecimal());
+        Assert.Equal("pending", body.GetProperty("paymentStatus").GetString());
+    }
 }

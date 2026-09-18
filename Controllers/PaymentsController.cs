@@ -98,17 +98,100 @@ public class PaymentsController : ControllerBase
             Amount = dto.Amount,
             PaymentMethod = dto.PaymentMethod,
         });
+        await _db.SaveChangesAsync();
 
-        booking.PaidAmount += dto.Amount;
+        await RecalculatePaymentStatusAsync(booking);
+        await _db.SaveChangesAsync();
+
+        return Ok(ToDto(booking));
+    }
+
+    /// <summary>
+    /// Lista los pagos ya registrados de una reserva, para poder elegir
+    /// cuál corregir o borrar desde Caja.
+    /// </summary>
+    [HttpGet("bookings/{id:guid}/payments")]
+    public async Task<IActionResult> GetPayments(Guid id)
+    {
+        var bookingExists = await _db.Bookings.AnyAsync(b => b.Id == id);
+        if (!bookingExists) return NotFound(new { error = "Reserva no encontrada" });
+
+        var payments = await _db.BookingPayments
+            .Where(p => p.BookingId == id)
+            .OrderBy(p => p.CreatedAt)
+            .Select(p => new
+            {
+                id = p.Id,
+                bookingId = p.BookingId,
+                amount = p.Amount,
+                paymentMethod = p.PaymentMethod,
+                createdAt = p.CreatedAt,
+            })
+            .ToListAsync();
+
+        return Ok(payments);
+    }
+
+    /// <summary>Corrige el monto o el medio de pago de un cobro ya registrado.</summary>
+    [HttpPut("bookings/{id:guid}/payments/{paymentId:guid}")]
+    public async Task<IActionResult> EditPayment(Guid id, Guid paymentId, [FromBody] BookingPaymentDto dto)
+    {
+        var booking = await _db.Bookings.Include(b => b.Court).FirstOrDefaultAsync(b => b.Id == id);
+        if (booking == null) return NotFound(new { error = "Reserva no encontrada" });
+
+        var payment = await _db.BookingPayments.FirstOrDefaultAsync(p => p.Id == paymentId && p.BookingId == id);
+        if (payment == null) return NotFound(new { error = "Pago no encontrado" });
+
+        if (dto.Amount <= 0)
+            return BadRequest(new { error = "El monto debe ser mayor a 0" });
+
+        if (!ValidPaymentMethods.Contains(dto.PaymentMethod))
+            return BadRequest(new { error = "paymentMethod debe ser 'efectivo', 'transferencia' o 'tarjeta'" });
+
+        payment.Amount = dto.Amount;
+        payment.PaymentMethod = dto.PaymentMethod;
+        await _db.SaveChangesAsync();
+
+        await RecalculatePaymentStatusAsync(booking);
+        await _db.SaveChangesAsync();
+
+        return Ok(ToDto(booking));
+    }
+
+    /// <summary>Borra un cobro registrado por error y recalcula lo pagado de la reserva.</summary>
+    [HttpDelete("bookings/{id:guid}/payments/{paymentId:guid}")]
+    public async Task<IActionResult> DeletePayment(Guid id, Guid paymentId)
+    {
+        var booking = await _db.Bookings.Include(b => b.Court).FirstOrDefaultAsync(b => b.Id == id);
+        if (booking == null) return NotFound(new { error = "Reserva no encontrada" });
+
+        var payment = await _db.BookingPayments.FirstOrDefaultAsync(p => p.Id == paymentId && p.BookingId == id);
+        if (payment == null) return NotFound(new { error = "Pago no encontrado" });
+
+        _db.BookingPayments.Remove(payment);
+        await _db.SaveChangesAsync();
+
+        await RecalculatePaymentStatusAsync(booking);
+        await _db.SaveChangesAsync();
+
+        return Ok(ToDto(booking));
+    }
+
+    /// <summary>
+    /// Recalcula PaidAmount sumando todos los BookingPayments vigentes de la
+    /// reserva (no solo el último movimiento), y deriva PaymentStatus. Así
+    /// editar o borrar un pago queda siempre consistente con el total real.
+    /// </summary>
+    private async Task RecalculatePaymentStatusAsync(Booking booking)
+    {
+        booking.PaidAmount = await _db.BookingPayments
+            .Where(p => p.BookingId == booking.Id)
+            .SumAsync(p => p.Amount);
 
         var totalDue = booking.Status == "cancelled" ? (booking.CancellationFee ?? booking.TotalAmount) : booking.TotalAmount;
         booking.PaymentStatus = booking.PaidAmount <= 0
             ? "pending"
             : booking.PaidAmount >= totalDue ? "paid" : "partial";
-
-        await _db.SaveChangesAsync();
-
-        return Ok(ToDto(booking));
     }
 
     /// <summary>
