@@ -43,9 +43,10 @@ public class BookingsController : ControllerBase
         var (error, date) = await ValidateAsync(dto);
         if (error != null) return BadRequest(new { error });
 
+        Member? member = null;
         if (dto.MemberId.HasValue)
         {
-            var member = await _db.Members.FirstOrDefaultAsync(m => m.Id == dto.MemberId.Value);
+            member = await _db.Members.FirstOrDefaultAsync(m => m.Id == dto.MemberId.Value);
             if (member == null) return BadRequest(new { error = "El socio indicado no existe" });
 
             if (await MemberDebt.MonthsOwedAsync(_db, member) >= 2)
@@ -55,7 +56,7 @@ public class BookingsController : ControllerBase
         if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: null))
             return Conflict(new { error = "La cancha ya tiene una reserva en ese horario" });
 
-        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour);
+        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour, member?.DiscountPercent ?? 0);
         if (priceError != null) return BadRequest(new { error = priceError });
 
         var booking = new Booking
@@ -91,7 +92,14 @@ public class BookingsController : ControllerBase
         if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: id))
             return Conflict(new { error = "La cancha ya tiene una reserva en ese horario" });
 
-        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour);
+        decimal discountPercent = 0;
+        if (booking.MemberId.HasValue)
+        {
+            var member = await _db.Members.FirstOrDefaultAsync(m => m.Id == booking.MemberId.Value);
+            discountPercent = member?.DiscountPercent ?? 0;
+        }
+
+        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour, discountPercent);
         if (priceError != null) return BadRequest(new { error = priceError });
 
         booking.CourtId = dto.CourtId;

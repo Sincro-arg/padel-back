@@ -51,6 +51,13 @@ public class RecurringBookingsController : ControllerBase
         };
         _db.RecurringBookings.Add(recurring);
 
+        decimal discountPercent = 0;
+        if (dto.MemberId.HasValue)
+        {
+            var member = await _db.Members.FirstOrDefaultAsync(m => m.Id == dto.MemberId.Value);
+            discountPercent = member?.DiscountPercent ?? 0;
+        }
+
         // Genera las reservas concretas de las próximas 8 semanas. Cada una cae en
         // una fecha distinta (misma semana no se repite), así que no pueden
         // solaparse entre ellas: el chequeo de solapamiento solo mira reservas ya
@@ -65,7 +72,7 @@ public class RecurringBookingsController : ControllerBase
             if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: null))
                 continue;
 
-            var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour);
+            var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour, discountPercent);
             if (priceError != null) continue;
 
             _db.Bookings.Add(new Booking
