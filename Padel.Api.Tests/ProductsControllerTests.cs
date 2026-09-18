@@ -51,6 +51,30 @@ public class ProductsControllerTests : IClassFixture<PadelApiFactory>
         return (product.Id, product.Stock);
     }
 
+    private (Guid Id, decimal TotalAmount) SeedBooking(decimal totalAmount = 8000m)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var court = new Padel.Api.Models.Court { Name = $"Cancha de test {Guid.NewGuid()}" };
+        db.Courts.Add(court);
+
+        var booking = new Padel.Api.Models.Booking
+        {
+            CourtId = court.Id,
+            CustomerName = "Cliente de test",
+            CustomerPhone = "1122334455",
+            Date = DateOnly.FromDateTime(DateTime.Now).AddDays(1),
+            StartHour = 10,
+            EndHour = 11,
+            TotalAmount = totalAmount,
+        };
+        db.Bookings.Add(booking);
+        db.SaveChanges();
+
+        return (booking.Id, booking.TotalAmount);
+    }
+
     [Fact]
     public async Task GetAll_ComoEmpleado_Devuelve200ConLista()
     {
@@ -331,5 +355,31 @@ public class ProductsControllerTests : IClassFixture<PadelApiFactory>
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var product = await db.Products.FirstAsync(p => p.Id == productId);
         Assert.Equal(2, product.Stock);
+    }
+
+    [Fact]
+    public async Task Sell_ConBookingId_SumaAmountAlTotalAmountDeLaReserva()
+    {
+        var (productId, _) = SeedProduct("Pelota de test con reserva", stock: 10, price: 500m);
+        var (bookingId, totalAmountOriginal) = SeedBooking(totalAmount: 8000m);
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.PostAsJsonAsync("/api/product-sales", new
+        {
+            productId,
+            quantity = 2,
+            bookingId,
+            paymentMethod = "efectivo",
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(1000m, body.GetProperty("amount").GetDecimal());
+        Assert.Equal(bookingId, body.GetProperty("bookingId").GetGuid());
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var booking = await db.Bookings.FirstAsync(b => b.Id == bookingId);
+        Assert.Equal(totalAmountOriginal + 1000m, booking.TotalAmount);
     }
 }
