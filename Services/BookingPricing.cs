@@ -22,7 +22,7 @@ public static class BookingPricing
             b.EndHour > startHour);
     }
 
-    public static async Task<(decimal? total, string? error)> CalculatePriceAsync(AppDbContext db, DateOnly date, int startHour, int endHour)
+    public static async Task<(decimal? total, string? error)> CalculatePriceAsync(AppDbContext db, DateOnly date, int startHour, int endHour, Guid? memberId = null)
     {
         var dayType = date.DayOfWeek == DayOfWeek.Saturday || date.DayOfWeek == DayOfWeek.Sunday
             ? "weekend"
@@ -38,6 +38,14 @@ public static class BookingPricing
                 return (null, $"No hay una tarifa de precio configurada para las {hour}:00");
             total += rule.PricePerHour;
         }
+
+        if (memberId.HasValue)
+        {
+            var member = await db.Members.FirstOrDefaultAsync(m => m.Id == memberId.Value);
+            if (member != null && member.DiscountPercent > 0)
+                total -= total * (member.DiscountPercent / 100m);
+        }
+
         return (total, null);
     }
 }

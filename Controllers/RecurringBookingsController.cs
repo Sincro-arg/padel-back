@@ -65,7 +65,7 @@ public class RecurringBookingsController : ControllerBase
             if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: null))
                 continue;
 
-            var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour);
+            var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour, dto.MemberId);
             if (priceError != null) continue;
 
             _db.Bookings.Add(new Booking

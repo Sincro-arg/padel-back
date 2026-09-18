@@ -49,7 +49,7 @@ public class BookingsController : ControllerBase
         if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: null))
             return Conflict(new { error = "La cancha ya tiene una reserva en ese horario" });
 
-        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour);
+        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour, dto.MemberId);
         if (priceError != null) return BadRequest(new { error = priceError });
 
         var booking = new Booking
@@ -85,7 +85,7 @@ public class BookingsController : ControllerBase
         if (await BookingPricing.OverlapsAsync(_db, dto.CourtId, date, dto.StartHour, dto.EndHour, excludeId: id))
             return Conflict(new { error = "La cancha ya tiene una reserva en ese horario" });
 
-        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour);
+        var (total, priceError) = await BookingPricing.CalculatePriceAsync(_db, date, dto.StartHour, dto.EndHour, booking.MemberId);
         if (priceError != null) return BadRequest(new { error = priceError });
 
         booking.CourtId = dto.CourtId;

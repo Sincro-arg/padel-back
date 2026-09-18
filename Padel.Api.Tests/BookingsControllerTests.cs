@@ -213,6 +213,47 @@ public class BookingsControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task Create_ConSocioConDescuento_AplicaElDescuentoAlTotal()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        Guid memberId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var member = new Member
+            {
+                Name = "Socio Con Descuento",
+                Phone = "1122334455",
+                MembershipFee = 10000m,
+                DiscountPercent = 20m,
+                JoinedAt = DateOnly.FromDateTime(DateTime.UtcNow),
+            };
+            db.Members.Add(member);
+            db.SaveChanges();
+            memberId = member.Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente de prueba",
+            customerPhone = "1122334455",
+            date,
+            startHour = 10,
+            endHour = 12,
+            memberId,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        // Seed: weekday 8-17hs a $4000/hora -> 2 horas = $8000, con 20% off = $6400.
+        Assert.Equal(6400m, body.GetProperty("totalAmount").GetDecimal());
+    }
+
+    [Fact]
     public async Task Delete_BorraLaReserva()
     {
         var court = SeedCourt();
