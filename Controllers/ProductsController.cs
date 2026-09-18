@@ -84,8 +84,25 @@ public class ProductsController : ControllerBase
         return NoContent();
     }
 
-    // Ruta absoluta /api/product-sales (no /api/products/...): así lo pide el
-    // contrato, es un recurso propio aunque viva en este mismo controller.
+    // Rutas absolutas /api/product-sales (no /api/products/...): así lo pide
+    // el contrato, es un recurso propio aunque viva en este mismo controller.
+    [HttpGet("/api/product-sales")]
+    public async Task<IActionResult> GetSales([FromQuery] string? date)
+    {
+        var query = _db.ProductSales.Include(s => s.Product).AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(date))
+        {
+            if (!DateOnly.TryParse(date, out var day))
+                return BadRequest(new { error = "Fecha inválida, formato esperado YYYY-MM-DD" });
+
+            query = query.Where(s => s.CreatedAt.Year == day.Year && s.CreatedAt.Month == day.Month && s.CreatedAt.Day == day.Day);
+        }
+
+        var sales = await query.OrderByDescending(s => s.CreatedAt).ToListAsync();
+        return Ok(sales.Select(ToSaleDto));
+    }
+
     [HttpPost("/api/product-sales")]
     public async Task<IActionResult> Sell([FromBody] ProductSaleDto dto)
     {
@@ -140,6 +157,92 @@ public class ProductsController : ControllerBase
         });
     }
 
+    // Corrige una venta cargada por error (cantidad o medio de pago). Repone
+    // el stock de la cantidad vieja y descuenta la nueva, y si la venta está
+    // sumada a una reserva reajusta su totalAmount por la diferencia.
+    [HttpPut("/api/product-sales/{id:guid}")]
+    public async Task<IActionResult> UpdateSale(Guid id, [FromBody] ProductSaleUpdateDto dto)
+    {
+        var sale = await _db.ProductSales.Include(s => s.Product).FirstOrDefaultAsync(s => s.Id == id);
+        if (sale == null) return NotFound(new { error = "Venta no encontrada" });
+
+        if (dto.Quantity <= 0)
+            return BadRequest(new { error = "La cantidad debe ser mayor a 0" });
+
+        if (!ValidPaymentMethods.Contains(dto.PaymentMethod))
+            return BadRequest(new { error = "paymentMethod debe ser 'efectivo', 'transferencia' o 'tarjeta'" });
+
+        var product = sale.Product ?? await _db.Products.FirstOrDefaultAsync(p => p.Id == sale.ProductId);
+        if (product == null) return NotFound(new { error = "Producto no encontrado" });
+
+        var stockDisponible = product.Stock + sale.Quantity;
+        if (stockDisponible < dto.Quantity)
+            return BadRequest(new { error = "No hay stock suficiente para esta venta" });
+
+        Booking? booking = null;
+        if (sale.BookingId.HasValue)
+        {
+            booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == sale.BookingId.Value);
+        }
+
+        var nuevoAmount = product.Price * dto.Quantity;
+        product.Stock = stockDisponible - dto.Quantity;
+
+        if (booking != null)
+        {
+            booking.TotalAmount = booking.TotalAmount - sale.Amount + nuevoAmount;
+        }
+
+        sale.Quantity = dto.Quantity;
+        sale.Amount = nuevoAmount;
+        sale.PaymentMethod = dto.PaymentMethod;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(ToSaleDto(sale));
+    }
+
+    // Borra una venta cargada por error: repone el stock y, si estaba sumada
+    // a una reserva, le resta el monto del totalAmount.
+    [HttpDelete("/api/product-sales/{id:guid}")]
+    public async Task<IActionResult> DeleteSale(Guid id)
+    {
+        var sale = await _db.ProductSales.FirstOrDefaultAsync(s => s.Id == id);
+        if (sale == null) return NotFound(new { error = "Venta no encontrada" });
+
+        var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == sale.ProductId);
+        if (product != null)
+        {
+            product.Stock += sale.Quantity;
+        }
+
+        if (sale.BookingId.HasValue)
+        {
+            var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == sale.BookingId.Value);
+            if (booking != null)
+            {
+                booking.TotalAmount -= sale.Amount;
+            }
+        }
+
+        _db.ProductSales.Remove(sale);
+        await _db.SaveChangesAsync();
+
+        return NoContent();
+    }
+
+    private static object ToSaleDto(ProductSale s) => new
+    {
+        id = s.Id,
+        productId = s.ProductId,
+        productName = s.Product?.Name,
+        quantity = s.Quantity,
+        amount = s.Amount,
+        bookingId = s.BookingId,
+        paymentMethod = s.PaymentMethod,
+        createdAt = s.CreatedAt,
+    };
+
     private static object ToDto(Product p) => new
     {
         id = p.Id,
@@ -178,5 +281,11 @@ public class ProductSaleDto
     public Guid ProductId { get; set; }
     public int Quantity { get; set; }
     public Guid? BookingId { get; set; }
+    public string PaymentMethod { get; set; } = string.Empty;
+}
+
+public class ProductSaleUpdateDto
+{
+    public int Quantity { get; set; }
     public string PaymentMethod { get; set; } = string.Empty;
 }
