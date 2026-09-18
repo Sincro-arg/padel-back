@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UseAppHost>false</UseAppHost>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,12 +20,19 @@
   </ItemGroup>
 
   <!-- El proyecto de tests vive dentro de esta carpeta, así que hay que sacarlo del glob
-       **/*.cs del API; si no, sus archivos se compilan también acá y no encuentran xunit. -->
+       **/*.cs del API; si no, sus archivos se compilan también acá y no encuentran xunit.
+       También se excluye "Padel.Api/" (una carpeta de build vieja que quedó suelta con
+       artefactos de una compilación anterior): sin este exclude, el glob por defecto la
+       toma como contenido propio y la vuelve a copiar en cada build. -->
   <ItemGroup>
     <Compile Remove="Padel.Api.Tests/**" />
     <Content Remove="Padel.Api.Tests/**" />
     <None Remove="Padel.Api.Tests/**" />
     <EmbeddedResource Remove="Padel.Api.Tests/**" />
+    <Compile Remove="Padel.Api/**" />
+    <Content Remove="Padel.Api/**" />
+    <None Remove="Padel.Api/**" />
+    <EmbeddedResource Remove="Padel.Api/**" />
   </ItemGroup>
 
 </Project>
