@@ -80,11 +80,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// Los orígenes salen de appsettings.json (Cors:AllowedOrigins) y se pueden
+// sobreescribir con la variable de entorno Cors__AllowedOrigins, una lista
+// separada por comas (ej. "https://mi-front.com,https://otro-dominio.com").
+var corsOriginsEnv = Environment.GetEnvironmentVariable("Cors__AllowedOrigins");
+var allowedOrigins = !string.IsNullOrWhiteSpace(corsOriginsEnv)
+    ? corsOriginsEnv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    : builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
     {
-        policy.WithOrigins("http://localhost:4200", "https://localhost:4200")
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyMethod()
               .AllowAnyHeader();
     });
