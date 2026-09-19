@@ -282,6 +282,142 @@ public class BookingsControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task Update_EditaCanchaHorarioYClienteYRecalculaElTotal()
+    {
+        var court = SeedCourt();
+        var otherCourt = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        var createResponse = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente original",
+            customerPhone = "1111111111",
+            date,
+            startHour = 10,
+            endHour = 11,
+        });
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var id = created.GetProperty("id").GetGuid();
+
+        var response = await client.PutAsJsonAsync($"/api/bookings/{id}", new
+        {
+            courtId = otherCourt.Id,
+            customerName = "Cliente editado",
+            customerPhone = "2222222222",
+            date,
+            startHour = 10,
+            endHour = 12,
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(otherCourt.Id, body.GetProperty("courtId").GetGuid());
+        Assert.Equal("Cliente editado", body.GetProperty("customerName").GetString());
+        Assert.Equal("2222222222", body.GetProperty("customerPhone").GetString());
+        Assert.Equal(12, body.GetProperty("endHour").GetInt32());
+        // Seed: weekday 8-17hs a $4000/hora -> ahora 2 horas = $8000.
+        Assert.Equal(8000m, body.GetProperty("totalAmount").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Update_EditandoseASiMismaEnElMismoHorario_NoDevuelve409()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        var createResponse = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente de prueba",
+            customerPhone = "1122334455",
+            date,
+            startHour = 10,
+            endHour = 11,
+        });
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var id = created.GetProperty("id").GetGuid();
+
+        var response = await client.PutAsJsonAsync($"/api/bookings/{id}", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente de prueba, nombre corregido",
+            customerPhone = "1122334455",
+            date,
+            startHour = 10,
+            endHour = 11,
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_ConHorarioSolapadoContraOtraReserva_Devuelve409()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Primer cliente",
+            customerPhone = "1111111111",
+            date,
+            startHour = 14,
+            endHour = 16,
+        });
+
+        var createResponse = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Segundo cliente",
+            customerPhone = "2222222222",
+            date,
+            startHour = 18,
+            endHour = 19,
+        });
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var id = created.GetProperty("id").GetGuid();
+
+        var response = await client.PutAsJsonAsync($"/api/bookings/{id}", new
+        {
+            courtId = court.Id,
+            customerName = "Segundo cliente",
+            customerPhone = "2222222222",
+            date,
+            startHour = 15,
+            endHour = 17,
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("La cancha ya tiene una reserva en ese horario", body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ConIdInexistente_Devuelve404()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var date = NextWeekday();
+
+        var response = await client.PutAsJsonAsync($"/api/bookings/{Guid.NewGuid()}", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente de prueba",
+            customerPhone = "1122334455",
+            date,
+            startHour = 10,
+            endHour = 11,
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Delete_BorraLaReserva()
     {
         var court = SeedCourt();
