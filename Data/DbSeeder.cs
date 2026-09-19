@@ -125,6 +125,62 @@ public static class DbSeeder
             }
         }
 
+        if (!db.Tournaments.Any())
+        {
+            var tournament = new Tournament
+            {
+                Name = "Torneo Apertura",
+                Date = today.AddDays(14),
+                RegistrationFee = 8000m,
+            };
+            db.Tournaments.Add(tournament);
+            db.SaveChanges();
+
+            var pair1 = new Pair
+            {
+                TournamentId = tournament.Id,
+                Player1 = "Martín Gómez",
+                Player2 = "Lucía Fernández",
+                Paid = true,
+                PaymentMethod = "efectivo",
+            };
+            var pair2 = new Pair
+            {
+                TournamentId = tournament.Id,
+                Player1 = "Diego Ramírez",
+                Player2 = "Sofía Torres",
+                Paid = true,
+                PaymentMethod = "transferencia",
+            };
+            var pair3 = new Pair
+            {
+                TournamentId = tournament.Id,
+                Player1 = "Facundo López",
+                Player2 = "Camila Ruiz",
+                Paid = false,
+            };
+            var pair4 = new Pair
+            {
+                TournamentId = tournament.Id,
+                Player1 = "Nicolás Sosa",
+                Player2 = "Valentina Díaz",
+                Paid = true,
+                PaymentMethod = "tarjeta",
+            };
+            db.Pairs.AddRange(pair1, pair2, pair3, pair4);
+            db.SaveChanges();
+
+            db.Matches.Add(new Match
+            {
+                TournamentId = tournament.Id,
+                Round = "Cuartos de final",
+                Pair1Id = pair1.Id,
+                Pair2Id = pair2.Id,
+                Score = "6-3 6-4",
+                WinnerPairId = pair1.Id,
+            });
+        }
+
         db.SaveChanges();
     }
 }
