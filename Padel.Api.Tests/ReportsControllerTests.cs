@@ -130,4 +130,16 @@ public class ReportsControllerTests : IClassFixture<PadelApiFactory>
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
+
+    [Fact]
+    public async Task GetMonthly_ConMesInvalido_Devuelve400()
+    {
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await client.GetAsync("/api/reports/monthly?year=2025&month=13");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
+    }
 }
