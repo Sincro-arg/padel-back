@@ -72,6 +72,70 @@ public class TournamentsControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task Update_ConDatosValidos_Devuelve200YActualiza()
+    {
+        var admin = await AuthenticatedClientAsync("admin", "Admin123!");
+        var tournamentId = await CreateTournamentAsync(admin);
+
+        var response = await admin.PutAsJsonAsync($"/api/tournaments/{tournamentId}", new
+        {
+            name = "Torneo actualizado",
+            date = "2026-11-15",
+            registrationFee = 7500m,
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(tournamentId, body.GetProperty("id").GetGuid());
+        Assert.Equal("Torneo actualizado", body.GetProperty("name").GetString());
+        Assert.Equal("2026-11-15", body.GetProperty("date").GetString());
+        Assert.Equal(7500m, body.GetProperty("registrationFee").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Update_ConIdInexistente_Devuelve404()
+    {
+        var admin = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await admin.PutAsJsonAsync($"/api/tournaments/{Guid.NewGuid()}", new
+        {
+            name = "No existe",
+            date = "2026-11-15",
+            registrationFee = 1000m,
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("error").GetString()));
+    }
+
+    [Fact]
+    public async Task Delete_ComoAdmin_Devuelve204YLoSacaDeLaLista()
+    {
+        var admin = await AuthenticatedClientAsync("admin", "Admin123!");
+        var tournamentId = await CreateTournamentAsync(admin);
+
+        var deleteResponse = await admin.DeleteAsync($"/api/tournaments/{tournamentId}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var listResponse = await admin.GetAsync("/api/tournaments");
+        var list = await listResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.DoesNotContain(list.EnumerateArray(), t => t.GetProperty("id").GetGuid() == tournamentId);
+    }
+
+    [Fact]
+    public async Task Delete_ConIdInexistente_Devuelve404()
+    {
+        var admin = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await admin.DeleteAsync($"/api/tournaments/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("error").GetString()));
+    }
+
+    [Fact]
     public async Task CreatePair_ConPaidTrueSinPaymentMethod_Devuelve400()
     {
         var admin = await AuthenticatedClientAsync("admin", "Admin123!");
