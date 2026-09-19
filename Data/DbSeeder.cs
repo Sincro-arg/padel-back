@@ -125,6 +125,73 @@ public static class DbSeeder
             }
         }
 
+        // Socios de ejemplo, con estados variados de cuota (al día, atrasado
+        // 1 mes, atrasado 2+/bloqueado) para que la pantalla Socios no abra
+        // vacía y se pueda probar la regla de bloqueo de reservas.
+        if (!db.Members.Any())
+        {
+            // Antigüedad fija de 6 meses para tener historial de cuotas.
+            var joinedAt = today.AddMonths(-6);
+
+            var members = new List<Member>
+            {
+                new Member { Name = "Sofía Torres", Phone = "1155667788", MembershipFee = 10000m, DiscountPercent = 0m, JoinedAt = joinedAt },
+                new Member { Name = "Facundo López", Phone = "1166778899", MembershipFee = 10000m, DiscountPercent = 10m, JoinedAt = joinedAt },
+                new Member { Name = "Camila Ruiz", Phone = "1177889900", MembershipFee = 12000m, DiscountPercent = 0m, JoinedAt = joinedAt },
+                new Member { Name = "Nicolás Sosa", Phone = "1188990011", MembershipFee = 10000m, DiscountPercent = 0m, JoinedAt = joinedAt },
+                new Member { Name = "Valentina Díaz", Phone = "1199001122", MembershipFee = 10000m, DiscountPercent = 5m, JoinedAt = joinedAt },
+                new Member { Name = "Tomás Ibáñez", Phone = "1100112233", MembershipFee = 10000m, DiscountPercent = 0m, JoinedAt = joinedAt },
+                new Member { Name = "Julieta Vega", Phone = "1111223344", MembershipFee = 12000m, DiscountPercent = 0m, JoinedAt = joinedAt },
+                new Member { Name = "Bruno Acosta", Phone = "1122334400", MembershipFee = 10000m, DiscountPercent = 0m, JoinedAt = joinedAt },
+            };
+            db.Members.AddRange(members);
+            db.SaveChanges();
+
+            // Meses desde el alta hasta el actual (ambos inclusive), del más
+            // viejo al más nuevo, igual que el cálculo de MemberStatus.MonthsOwed.
+            var months = new List<(int Year, int Month)>();
+            var cursor = new DateOnly(joinedAt.Year, joinedAt.Month, 1);
+            var limit = new DateOnly(today.Year, today.Month, 1);
+            while (cursor <= limit)
+            {
+                months.Add((cursor.Year, cursor.Month));
+                cursor = cursor.AddMonths(1);
+            }
+
+            var payments = new List<MemberPayment>();
+            void PayMonths(Member member, int countToPay)
+            {
+                for (var i = 0; i < countToPay; i++)
+                {
+                    var (year, month) = months[i];
+                    payments.Add(new MemberPayment
+                    {
+                        MemberId = member.Id,
+                        Year = year,
+                        Month = month,
+                        Amount = member.MembershipFee * (1 - member.DiscountPercent / 100m),
+                        PaymentMethod = i % 2 == 0 ? "efectivo" : "transferencia",
+                    });
+                }
+            }
+
+            // Al día: pagaron todos los meses, incluido el actual.
+            PayMonths(members[0], months.Count);
+            PayMonths(members[1], months.Count);
+            PayMonths(members[2], months.Count);
+
+            // Atrasados 1 mes: les falta el mes actual.
+            PayMonths(members[3], months.Count - 1);
+            PayMonths(members[4], months.Count - 1);
+
+            // Atrasados 2+ meses (bloqueados): les faltan los últimos 2 o 3 meses.
+            PayMonths(members[5], months.Count - 2);
+            PayMonths(members[6], months.Count - 2);
+            PayMonths(members[7], months.Count - 3);
+
+            db.MemberPayments.AddRange(payments);
+        }
+
         if (!db.Tournaments.Any())
         {
             var tournament = new Tournament
