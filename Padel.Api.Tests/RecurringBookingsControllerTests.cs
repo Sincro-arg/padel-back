@@ -122,6 +122,48 @@ public class RecurringBookingsControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task Create_WeekdayFueraDeRango_Devuelve400()
+    {
+        var court = SeedCourt();
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+
+        var response = await client.PostAsJsonAsync("/api/recurring-bookings", new
+        {
+            courtId = court.Id,
+            customerName = "Cliente fijo",
+            customerPhone = "1122334455",
+            weekday = 7,
+            startHour = 20,
+            endHour = 21,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("weekday debe estar entre 0 (domingo) y 6 (sábado)", body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Create_CanchaInexistente_Devuelve400()
+    {
+        var client = await AuthenticatedClientAsync("empleado", "Empleado123!");
+        var weekday = (int)DateTime.Now.DayOfWeek;
+
+        var response = await client.PostAsJsonAsync("/api/recurring-bookings", new
+        {
+            courtId = Guid.NewGuid(),
+            customerName = "Cliente fijo",
+            customerPhone = "1122334455",
+            weekday,
+            startHour = 20,
+            endHour = 21,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("La cancha indicada no existe", body.GetProperty("error").GetString());
+    }
+
+    [Fact]
     public async Task Delete_CancelaLasReservasFuturasGeneradas()
     {
         var court = SeedCourt();
