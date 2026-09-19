@@ -84,6 +84,16 @@ public class ReportsControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task GetMonthly_ConMesCero_Devuelve400()
+    {
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await client.GetAsync("/api/reports/monthly?year=2021&month=0");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task GetMonthly_ComoAdmin_SumaSoloReservasConfirmadasDelMes()
     {
         var court = SeedCourt();
