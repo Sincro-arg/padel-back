@@ -158,6 +158,62 @@ public class MembersControllerTests : IClassFixture<PadelApiFactory>
     }
 
     [Fact]
+    public async Task Update_ComoAdmin_EditaDatosYDevuelve200()
+    {
+        var member = SeedMember("Socio A Editar");
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await client.PutAsJsonAsync($"/api/members/{member.Id}", new
+        {
+            name = "Socio Editado",
+            phone = "1199887766",
+            membershipFee = 15000,
+            discountPercent = 20,
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Socio Editado", body.GetProperty("name").GetString());
+        Assert.Equal("1199887766", body.GetProperty("phone").GetString());
+        Assert.Equal(15000m, body.GetProperty("membershipFee").GetDecimal());
+        Assert.Equal(20m, body.GetProperty("discountPercent").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Update_ConNombreVacio_Devuelve400()
+    {
+        var member = SeedMember("Socio Test Update Invalido");
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await client.PutAsJsonAsync($"/api/members/{member.Id}", new
+        {
+            name = "",
+            phone = "1122334455",
+            membershipFee = 10000,
+            discountPercent = 10,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_ConIdInexistente_Devuelve404()
+    {
+        var client = await AuthenticatedClientAsync("admin", "Admin123!");
+
+        var response = await client.PutAsJsonAsync($"/api/members/{Guid.NewGuid()}", new
+        {
+            name = "Socio Inexistente",
+            phone = "1122334455",
+            membershipFee = 10000,
+            discountPercent = 10,
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Delete_ComoAdmin_Devuelve204()
     {
         var member = SeedMember("Socio A Borrar");
